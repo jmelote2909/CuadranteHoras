@@ -12,3 +12,5 @@ Volt::route('/cuadrante', 'schedule.schedule-index')->name('schedule');
 Volt::route('/amarillos-arancalo', 'schedule.schedule-index')->name('amarillos.arancalo');
 Volt::route('/cima', 'schedule.schedule-index')->name('cima');
 Volt::route('/amarillos-cima', 'schedule.schedule-index')->name('amarillos.cima');
+Volt::route('/administracion-arancalo', 'administration.administration-index')->name('administration.arancalo');
+Volt::route('/administracion-cima', 'administration.administration-index')->name('administration.cima');

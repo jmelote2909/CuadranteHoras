@@ -6,9 +6,14 @@ use Carbon\Carbon;
 use App\Models\Operator;
 use App\Models\Shift;
 use App\Models\Setting;
+use App\Models\ExternalOperation;
+use App\Models\Holiday;
+use App\Traits\CalculatesMonthlyTotals;
 
 new #[Layout('layouts.app')] class extends Component
 {
+    use CalculatesMonthlyTotals;
+
     public $month;
     public $year;
     public $shifts = [];
@@ -16,14 +21,17 @@ new #[Layout('layouts.app')] class extends Component
     public $company = 'arancalo';
     public $isAmarillosMode = false;
     public $activeColor = 'yellow';
+    public $externalOperations = [];
 
     public $showAddModal = false;
     public $newOperatorName = '';
+    public $newOperatorZone = '';
 
     public function rules()
     {
         return [
             'newOperatorName' => 'required|string|max:255',
+            'newOperatorZone' => 'nullable|string|max:255',
         ];
     }
 
@@ -37,9 +45,10 @@ new #[Layout('layouts.app')] class extends Component
             'rate_saturday' => 0,
             'rate_sunday' => 0,
             'company' => $this->company,
+            'zone' => $this->newOperatorZone,
         ]);
 
-        $this->reset(['newOperatorName', 'showAddModal']);
+        $this->reset(['newOperatorName', 'newOperatorZone', 'showAddModal']);
         $this->loadShifts();
     }
 
@@ -79,6 +88,15 @@ new #[Layout('layouts.app')] class extends Component
             }
         }
 
+        $this->externalOperations = [];
+        $extOps = ExternalOperation::where('month', $this->month)
+            ->where('year', $this->year)
+            ->whereIn('operator_id', $operators->pluck('id'))
+            ->get();
+        foreach($extOps as $extOp) {
+            $this->externalOperations[$extOp->operator_id] = $extOp->amount;
+        }
+
         foreach($allShifts as $shift) {
             $this->shifts[$shift->operator_id][$shift->date->format('Y-m-d')] = $shift->hours;
             $this->shiftColors[$shift->operator_id][$shift->date->format('Y-m-d')] = $shift->color;
@@ -90,17 +108,30 @@ new #[Layout('layouts.app')] class extends Component
         $this->activeColor = $color;
     }
 
-    public function updatedShifts($value, $name)
+    public function updated($name, $value)
     {
-        [$operatorId, $date] = explode('.', $name);
+        if (str_starts_with($name, 'shifts.')) {
+            $parts = explode('.', $name);
+            if (count($parts) === 3) {
+                $this->saveShift($parts[1], $parts[2], $value);
+            }
+        }
 
+        if (str_starts_with($name, 'externalOperations.')) {
+            $operatorId = str_replace('externalOperations.', '', $name);
+            $this->saveExternalOperation($operatorId, $value);
+        }
+    }
+
+    protected function saveShift($operatorId, $date, $value)
+    {
         if ($value === '' || $value === null) {
-            Shift::where('operator_id', $operatorId)->whereDate('date', $date)->delete();
+            Shift::where('operator_id', (int)$operatorId)->whereDate('date', $date)->delete();
         } else {
-            $shift = Shift::where('operator_id', $operatorId)->whereDate('date', $date)->first();
+            $shift = Shift::where('operator_id', (int)$operatorId)->whereDate('date', $date)->first();
             
             if ($shift) {
-                $updateData = ['hours' => $value];
+                $updateData = ['hours' => (float)$value];
                 if ($this->isAmarillosMode) {
                     $updateData['color'] = $this->activeColor;
                     $this->shiftColors[$operatorId][$date] = $this->activeColor;
@@ -108,9 +139,9 @@ new #[Layout('layouts.app')] class extends Component
                 $shift->update($updateData);
             } else {
                 $createData = [
-                    'operator_id' => $operatorId, 
+                    'operator_id' => (int)$operatorId, 
                     'date' => Carbon::parse($date)->startOfDay(), 
-                    'hours' => $value
+                    'hours' => (float)$value
                 ];
                 if ($this->isAmarillosMode) {
                     $createData['color'] = $this->activeColor;
@@ -118,6 +149,21 @@ new #[Layout('layouts.app')] class extends Component
                 }
                 Shift::create($createData);
             }
+        }
+    }
+
+    protected function saveExternalOperation($operatorId, $value)
+    {
+        if ($value === '' || $value === null) {
+            ExternalOperation::where('month', $this->month)
+                ->where('year', $this->year)
+                ->where('operator_id', (int)$operatorId)
+                ->delete();
+        } else {
+            ExternalOperation::updateOrCreate(
+                ['month' => $this->month, 'year' => $this->year, 'operator_id' => (int)$operatorId],
+                ['amount' => (float)$value]
+            );
         }
     }
 
@@ -142,106 +188,11 @@ new #[Layout('layouts.app')] class extends Component
         return Carbon::createFromDate($this->year, $this->month, 1)->translatedFormat('F');
     }
 
-    public function daysInMonth()
-    {
-        $date = Carbon::createFromDate($this->year, $this->month, 1);
-        $days = [];
-        
-        for ($i = 0; $i < $date->daysInMonth; $i++) {
-            $current = $date->copy()->addDays($i);
-            $days[] = [
-                'date' => $current->format('Y-m-d'),
-                'day' => $current->day,
-                'name' => $current->shortLocaleDayOfWeek,
-                'is_weekend' => $current->isWeekend(),
-                'is_saturday' => $current->dayOfWeek === Carbon::SATURDAY,
-                'is_sunday' => $current->dayOfWeek === Carbon::SUNDAY,
-            ];
-        }
-        
-        return $days;
-    }
-
     public function with()
     {
         $operators = Operator::where('company', $this->company)->get();
-        $days = $this->daysInMonth();
-        
-        $globalRateWeekday = Setting::getRate('extra_rate_weekday', 0);
-        $globalRateSaturday = Setting::getRate('extra_rate_saturday', 0);
-        $globalRateSunday = Setting::getRate('extra_rate_sunday', 0);
-        
-        $totals = [];
-        
-        foreach ($operators as $op) {
-            $hLunesViernes = 0;
-            $hSabados = 0;
-            $hDomingos = 0;
-            
-            foreach ($days as $day) {
-                // Fetch hour and color from Livewire state
-                $hours = (float) ($this->shifts[$op->id][$day['date']] ?? 0);
-                $color = $this->shiftColors[$op->id][$day['date']] ?? null;
-
-                // Skip hours that don't belong to the current mode
-                if ($this->isAmarillosMode && !in_array($color, ['yellow', 'blue'])) {
-                    $hours = 0;
-                } elseif (!$this->isAmarillosMode && $color !== null) {
-                    $hours = 0;
-                }
-                
-                if ($day['is_sunday']) {
-                    $hDomingos += $hours;
-                } elseif ($day['is_saturday']) {
-                    $hSabados += $hours;
-                } else {
-                    $hLunesViernes += $hours;
-                }
-            }
-            
-            $totalHoras = $hLunesViernes + $hSabados + $hDomingos;
-            
-            $costeLV = $hLunesViernes * $globalRateWeekday;
-            $costeSab = $hSabados * $globalRateSaturday;
-            $costeDom = $hDomingos * $globalRateSunday;
-            $totalCostes = $costeLV + $costeSab + $costeDom;
-            
-            // Días Amarillos Calculations
-            $allTimeYellow = Shift::where('operator_id', $op->id)->where('color', 'yellow')->sum('hours');
-            $allTimeBlue = Shift::where('operator_id', $op->id)->where('color', 'blue')->sum('hours');
-            
-            $monthYellow = Shift::where('operator_id', $op->id)
-                ->whereMonth('date', $this->month)
-                ->whereYear('date', $this->year)
-                ->where('color', 'yellow')
-                ->sum('hours');
-                
-            $monthBlue = Shift::where('operator_id', $op->id)
-                ->whereMonth('date', $this->month)
-                ->whereYear('date', $this->year)
-                ->where('color', 'blue')
-                ->sum('hours');
-                
-            $yearComposite = Shift::where('operator_id', $op->id)
-                ->whereYear('date', $this->year)
-                ->whereIn('color', ['yellow', 'blue'])
-                ->sum('hours');
-
-            $totals[$op->id] = [
-                'horas_lv' => $hLunesViernes,
-                'horas_sab' => $hSabados,
-                'horas_dom' => $hDomingos,
-                'horas_total' => $totalHoras,
-                'coste_lv' => $costeLV,
-                'coste_sab' => $costeSab,
-                'coste_dom' => $costeDom,
-                'coste_total' => $totalCostes,
-                'amarillos_total_balance' => $allTimeYellow - $allTimeBlue,
-                'amarillos_mes' => $monthYellow,
-                'azules_mes' => $monthBlue,
-                'año_compuesto' => $yearComposite,
-            ];
-        }
+        $days = $this->getDaysInMonth($this->month, $this->year);
+        $totals = $this->calculateTotals($operators, $this->month, $this->year, $this->isAmarillosMode);
 
         return [
             'operatorsList' => $operators,
@@ -320,7 +271,7 @@ new #[Layout('layouts.app')] class extends Component
                             
                             <!-- Day Headers -->
                             @foreach($daysList as $day)
-                                <th class="p-2 border-r border-slate-200 text-center w-[40px] uppercase {{ $day['is_sunday'] ? 'bg-rose-100 text-rose-700' : ($day['is_saturday'] ? 'bg-orange-50 text-orange-600' : 'text-slate-500') }}">
+                                <th class="p-2 border-r border-slate-200 text-center w-[40px] uppercase {{ $day['is_holiday'] ? 'bg-purple-600 text-white' : ($day['is_sunday'] ? 'bg-rose-100 text-rose-700' : ($day['is_saturday'] ? 'bg-orange-50 text-orange-600' : 'text-slate-500')) }}">
                                     <div class="text-[9px] mb-0.5">{{ $day['name'] }}</div>
                                     <div class="text-sm font-bold">{{ $day['day'] }}</div>
                                 </th>
@@ -329,7 +280,7 @@ new #[Layout('layouts.app')] class extends Component
                             @if($isAmarillosMode)
                                 <!-- Summary Headers for Amarillos Mode -->
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[120px] bg-yellow-400 text-slate-900 uppercase font-bold leading-tight">
-                                    Días Totales<br>en Amarillo
+                                    Horas Totales<br>en Amarillo - Azules
                                 </th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[100px] bg-yellow-200 text-yellow-900 uppercase font-bold leading-tight">
                                     Suma Horas<br>Amarillas Mes
@@ -337,18 +288,18 @@ new #[Layout('layouts.app')] class extends Component
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[100px] bg-blue-100 text-blue-900 uppercase font-bold leading-tight">
                                     Suma Horas<br>Azules Mes
                                 </th>
-                                <th class="p-2 border-r border-slate-200 text-center min-w-[120px] bg-green-500 text-white uppercase font-bold leading-tight">
-                                    Total Horas Año<br>Amarillo-Azul
-                                </th>
                             @else
                                 <!-- Summary Headers: Hours -->
+                                <th class="p-2 border-r border-slate-200 text-center min-w-[100px] bg-indigo-50 text-indigo-700 uppercase font-bold leading-tight">Operaciones<br>Externas</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-slate-100 text-slate-700 uppercase">Horas<br>L-V</th>
+                                <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-purple-100 text-purple-800 uppercase">Horas<br>Festivos</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-orange-100 text-orange-800 uppercase">Horas<br>Sábados</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-rose-100 text-rose-800 uppercase">Horas<br>Domingos</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-yellow-400 text-black uppercase font-bold">Total<br>Horas</th>
 
                                 <!-- Summary Headers: Costs -->
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-green-50 text-green-700 uppercase">Coste<br>L-V</th>
+                                <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-purple-600 text-white uppercase">Coste<br>Festivos</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-green-100 text-green-800 uppercase">Coste<br>Sábados</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-green-200 text-green-900 uppercase">Coste<br>Domingos</th>
                                 <th class="p-2 border-r border-slate-200 text-center min-w-[70px] bg-green-500 text-white uppercase font-bold">Total<br>Costes</th>
@@ -379,6 +330,8 @@ new #[Layout('layouts.app')] class extends Component
                                                 $cellBg = 'bg-blue-600';
                                                 $textColor = 'text-white';
                                             }
+                                        } elseif ($day['is_holiday']) {
+                                            $cellBg = 'bg-purple-100';
                                         } elseif ($day['is_sunday']) {
                                             $cellBg = 'bg-rose-50/30';
                                         } elseif ($day['is_saturday']) {
@@ -404,18 +357,23 @@ new #[Layout('layouts.app')] class extends Component
                                     <td class="p-2 border-r border-slate-200 text-center bg-blue-50 text-blue-700 font-bold text-sm">
                                         {{ $totalsList[$op->id]['azules_mes'] }}
                                     </td>
-                                    <td class="p-2 border-r border-slate-200 text-center bg-green-500 text-white font-bold text-sm">
-                                        {{ $totalsList[$op->id]['año_compuesto'] }}
-                                    </td>
                                 @else
                                     <!-- Summary Data: Hours -->
+                                    <td class="p-2 border-r border-slate-200 text-center bg-indigo-50/30 text-indigo-700 p-0">
+                                        <input type="number" step="0.01" 
+                                            wire:model.live.debounce.1000ms="externalOperations.{{ $op->id }}"
+                                            class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0"
+                                            placeholder="0,00 €">
+                                    </td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-slate-50 text-slate-700 font-bold text-sm">{{ $totalsList[$op->id]['horas_lv'] }}</td>
+                                    <td class="p-2 border-r border-slate-200 text-center bg-purple-50 text-purple-700 font-bold text-sm">{{ $totalsList[$op->id]['horas_fest'] }}</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-orange-50/50 text-orange-700 font-bold text-sm">{{ $totalsList[$op->id]['horas_sab'] }}</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-rose-50/50 text-rose-700 font-bold text-sm">{{ $totalsList[$op->id]['horas_dom'] }}</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-yellow-50 text-slate-900 font-bold text-sm">{{ $totalsList[$op->id]['horas_total'] }}</td>
 
                                     <!-- Summary Data: Costs -->
                                     <td class="p-2 border-r border-slate-200 text-center bg-green-50/30 text-green-700 font-medium whitespace-nowrap">{{ number_format($totalsList[$op->id]['coste_lv'], 2, ',', '.') }} €</td>
+                                    <td class="p-2 border-r border-slate-200 text-center bg-purple-600/10 text-purple-700 font-medium whitespace-nowrap">{{ number_format($totalsList[$op->id]['coste_fest'], 2, ',', '.') }} €</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-green-100/30 text-green-700 font-medium whitespace-nowrap">{{ number_format($totalsList[$op->id]['coste_sab'], 2, ',', '.') }} €</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-green-200/30 text-green-800 font-medium whitespace-nowrap">{{ number_format($totalsList[$op->id]['coste_dom'], 2, ',', '.') }} €</td>
                                     <td class="p-2 border-r border-slate-200 text-center bg-green-100 text-green-900 font-bold text-sm whitespace-nowrap">{{ number_format($totalsList[$op->id]['coste_total'], 2, ',', '.') }} €</td>
@@ -429,6 +387,7 @@ new #[Layout('layouts.app')] class extends Component
 
         <!-- Legend / Hints -->
         <div class="flex items-center space-x-6 text-xs text-slate-400 px-2 mt-4">
+            <div class="flex items-center"><span class="w-3 h-3 bg-purple-600 rounded-sm mr-2"></span> Festivos</div>
             <div class="flex items-center"><span class="w-3 h-3 bg-rose-200 rounded-sm mr-2"></span> Domingos</div>
             <div class="flex items-center"><span class="w-3 h-3 bg-orange-100 rounded-sm mr-2"></span> Sábados</div>
             <div class="flex items-center"><span class="w-3 h-3 bg-slate-50 border border-slate-200 rounded-sm mr-2"></span> Días Laborables</div>
@@ -452,6 +411,12 @@ new #[Layout('layouts.app')] class extends Component
                     <label class="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label>
                     <input type="text" wire:model="newOperatorName" class="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" required autofocus>
                     @error('newOperatorName') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Zona</label>
+                    <input type="text" wire:model="newOperatorZone" placeholder="Ej: Zona Norte" class="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
+                    @error('newOperatorZone') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
                 </div>
                 
                 <div class="pt-4 flex justify-end gap-3 mt-2">
