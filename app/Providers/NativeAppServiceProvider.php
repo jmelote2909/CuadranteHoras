@@ -14,6 +14,10 @@ class NativeAppServiceProvider implements ProvidesPhpIni
     public function boot(): void
     {
         Window::open();
+
+        if (app()->isProduction()) {
+            \Native\Desktop\Facades\Updater::checkForUpdates();
+        }
     }
 
     /**
