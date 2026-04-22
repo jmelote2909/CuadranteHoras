@@ -39,6 +39,15 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
+    public function deleteOperator($id)
+    {
+        $operator = Operator::find($id);
+        if ($operator) {
+            $operator->delete();
+            $this->loadZones();
+        }
+    }
+
     public function prevMonth()
     {
         $date = Carbon::createFromDate($this->year, $this->month, 1)->subMonth();
@@ -74,8 +83,13 @@ new #[Layout('layouts.app')] class extends Component
         $operators = Operator::where('company', $this->company)->get();
         $totals = $this->calculateTotals($operators, $this->month, $this->year, false);
 
+        // Filter operators to only show those with cost > 0
+        $filteredOperators = $operators->filter(function($op) use ($totals) {
+            return ($totals[$op->id]['coste_total'] ?? 0) > 0;
+        });
+
         return [
-            'operators' => $operators,
+            'operators' => $filteredOperators,
             'totals' => $totals,
             'currentMonthName' => $this->monthName(),
             'startDate' => Carbon::createFromDate($this->year, $this->month, 1)->format('d/m/Y'),
@@ -155,7 +169,19 @@ new #[Layout('layouts.app')] class extends Component
                 <tbody class="divide-y divide-slate-200">
                     @foreach($operators as $operator)
                         <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="p-4 bg-[#C6E0B4]/10 border border-slate-200 font-bold text-slate-800">{{ $operator->name }}</td>
+                            <td class="p-4 bg-[#C6E0B4]/10 border border-slate-200 font-bold text-slate-800">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="truncate">{{ $operator->name }}</span>
+                                    <button 
+                                        wire:click="deleteOperator({{ $operator->id }})"
+                                        wire:confirm="¿Estás seguro de que deseas eliminar a este empleado y todos sus registros?"
+                                        class="text-slate-400 hover:text-red-500 transition-colors p-1 print:hidden"
+                                        title="Eliminar Empleado"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                </div>
+                            </td>
                             <td class="p-4 text-center border border-slate-200">{{ $totals[$operator->id]['horas_lv'] }} h</td>
                             <td class="p-4 text-center border border-slate-200">{{ $totals[$operator->id]['horas_sab'] }} h</td>
                             <td class="p-4 text-center border border-slate-200">{{ $totals[$operator->id]['horas_dom'] }} h</td>

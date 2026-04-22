@@ -25,13 +25,11 @@ new #[Layout('layouts.app')] class extends Component
 
     public $showAddModal = false;
     public $newOperatorName = '';
-    public $newOperatorZone = '';
 
     public function rules()
     {
         return [
             'newOperatorName' => 'required|string|max:255',
-            'newOperatorZone' => 'nullable|string|max:255',
         ];
     }
 
@@ -45,11 +43,19 @@ new #[Layout('layouts.app')] class extends Component
             'rate_saturday' => 0,
             'rate_sunday' => 0,
             'company' => $this->company,
-            'zone' => $this->newOperatorZone,
         ]);
 
-        $this->reset(['newOperatorName', 'newOperatorZone', 'showAddModal']);
+        $this->reset(['newOperatorName', 'showAddModal']);
         $this->loadShifts();
+    }
+
+    public function deleteOperator($id)
+    {
+        $operator = Operator::find($id);
+        if ($operator) {
+            $operator->delete();
+            $this->loadShifts();
+        }
     }
 
     public function mount()
@@ -311,7 +317,17 @@ new #[Layout('layouts.app')] class extends Component
                             <tr class="hover:bg-indigo-50/20 transition-colors group">
                                 <!-- Sticky Column Data -->
                                 <td class="sticky left-0 z-10 bg-white group-hover:bg-indigo-50 p-3 border-r border-slate-200 font-bold text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                                    {{ $op->name }}
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="truncate">{{ $op->name }}</span>
+                                        <button 
+                                            wire:click="deleteOperator({{ $op->id }})"
+                                            wire:confirm="¿Estás seguro de que deseas eliminar a este empleado y todos sus registros?"
+                                            class="text-slate-300 hover:text-red-500 transition-colors p-1"
+                                            title="Eliminar Empleado"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    </div>
                                 </td>
 
                                 <!-- Day Cells (Inputs) -->
@@ -413,11 +429,6 @@ new #[Layout('layouts.app')] class extends Component
                     @error('newOperatorName') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
                 </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Zona</label>
-                    <input type="text" wire:model="newOperatorZone" placeholder="Ej: Zona Norte" class="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
-                    @error('newOperatorZone') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
-                </div>
                 
                 <div class="pt-4 flex justify-end gap-3 mt-2">
                     <button type="button" wire:click="$set('showAddModal', false)" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>

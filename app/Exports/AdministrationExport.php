@@ -32,9 +32,14 @@ class AdministrationExport implements FromView, WithStyles, WithColumnWidths, Wi
 
     public function view(): View
     {
-        $operators = Operator::where('company', $this->company)->get();
-        $totals = $this->calculateTotals($operators, $this->month, $this->year, false);
+        $allOperators = Operator::where('company', $this->company)->get();
+        $totals = $this->calculateTotals($allOperators, $this->month, $this->year, false);
         
+        // Filter operators to only show those with cost > 0
+        $operators = $allOperators->filter(function($op) use ($totals) {
+            return ($totals[$op->id]['coste_total'] ?? 0) > 0;
+        });
+
         $currentMonthName = Carbon::createFromDate($this->year, $this->month, 1)->translatedFormat('F');
         $startDate = Carbon::createFromDate($this->year, $this->month, 1)->format('d/m/Y');
         $endDate = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('d/m/Y');
