@@ -314,7 +314,7 @@ new #[Layout('layouts.app')] class extends Component
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         @foreach($operatorsList as $op)
-                            <tr class="hover:bg-indigo-50/20 transition-colors group">
+                            <tr wire:key="op-{{ $op->id }}" class="hover:bg-indigo-50/20 transition-colors group">
                                 <!-- Sticky Column Data -->
                                 <td class="sticky left-0 z-10 bg-white group-hover:bg-indigo-50 p-3 border-r border-slate-200 font-bold text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                     <div class="flex items-center justify-between gap-2">

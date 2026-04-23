@@ -90,14 +90,25 @@
         </a>
     </nav>
 
-    <!-- App Info / Footer -->
-    <div class="p-6 border-t border-slate-800">
-        <div class="bg-slate-800/50 rounded-xl p-4">
-            <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Status</p>
-            <div class="flex items-center">
-                <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                <span class="text-xs text-slate-400">Desktop Connected</span>
+    <!-- User Profile / Logout -->
+    <div class="p-4 border-t border-slate-800">
+        <div class="bg-slate-800/50 rounded-2xl p-4 flex items-center justify-between group">
+            <div class="flex items-center space-x-3 overflow-hidden">
+                <div class="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                </div>
+                <div class="overflow-hidden">
+                    <p class="text-xs font-bold text-white truncate">{{ auth()->user()->name }}</p>
+                    <p class="text-[10px] text-slate-500 truncate uppercase tracking-widest">{{ auth()->user()->username }}</p>
+                </div>
             </div>
+            <form action="{{ route('logout') }}" method="POST">
+                @csrf
+                <button type="submit" class="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all" title="Cerrar Sesión">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                </button>
+            </form>
         </div>
+        <p class="text-[10px] text-center text-slate-600 mt-4 font-medium uppercase tracking-[0.2em]">© {{ date('Y') }} ARANCALO</p>
     </div>
 </aside>

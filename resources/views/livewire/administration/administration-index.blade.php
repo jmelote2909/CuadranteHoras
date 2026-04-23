@@ -168,7 +168,7 @@ new #[Layout('layouts.app')] class extends Component
                 </thead>
                 <tbody class="divide-y divide-slate-200">
                     @foreach($operators as $operator)
-                        <tr class="hover:bg-slate-50 transition-colors">
+                        <tr wire:key="admin-op-{{ $operator->id }}" class="hover:bg-slate-50 transition-colors">
                             <td class="p-4 bg-[#C6E0B4]/10 border border-slate-200 font-bold text-slate-800">
                                 <div class="flex items-center justify-between gap-2">
                                     <span class="truncate">{{ $operator->name }}</span>

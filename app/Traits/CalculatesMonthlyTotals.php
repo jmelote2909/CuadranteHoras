@@ -36,6 +36,29 @@ trait CalculatesMonthlyTotals
             ->get()
             ->groupBy('operator_id');
 
+        // Batch fetch all-time totals
+        $allTimeYellowTotals = Shift::whereIn('operator_id', $operatorIds)->where('color', 'yellow')->groupBy('operator_id')->selectRaw('operator_id, sum(hours) as sum')->pluck('sum', 'operator_id')->toArray();
+        $allTimeBlueTotals = Shift::whereIn('operator_id', $operatorIds)->where('color', 'blue')->groupBy('operator_id')->selectRaw('operator_id, sum(hours) as sum')->pluck('sum', 'operator_id')->toArray();
+
+        // Batch fetch monthly totals for amarillos
+        $monthYellowTotals = Shift::whereIn('operator_id', $operatorIds)
+            ->whereMonth('date', $month)
+            ->whereYear('date', $year)
+            ->where('color', 'yellow')
+            ->groupBy('operator_id')
+            ->selectRaw('operator_id, sum(hours) as sum')
+            ->pluck('sum', 'operator_id')
+            ->toArray();
+            
+        $monthBlueTotals = Shift::whereIn('operator_id', $operatorIds)
+            ->whereMonth('date', $month)
+            ->whereYear('date', $year)
+            ->where('color', 'blue')
+            ->groupBy('operator_id')
+            ->selectRaw('operator_id, sum(hours) as sum')
+            ->pluck('sum', 'operator_id')
+            ->toArray();
+
         $totals = [];
         
         foreach ($operators as $op) {
@@ -78,21 +101,11 @@ trait CalculatesMonthlyTotals
             $extOpAmount = (float)($externalOperations[$op->id] ?? 0);
             $totalCostes = $costeLV + $costeSab + $costeDom + $costeFest + $extOpAmount;
             
-            // Amarillos Calculations
-            $allTimeYellow = Shift::where('operator_id', $op->id)->where('color', 'yellow')->sum('hours');
-            $allTimeBlue = Shift::where('operator_id', $op->id)->where('color', 'blue')->sum('hours');
-            
-            $monthYellow = Shift::where('operator_id', $op->id)
-                ->whereMonth('date', $month)
-                ->whereYear('date', $year)
-                ->where('color', 'yellow')
-                ->sum('hours');
-                
-            $monthBlue = Shift::where('operator_id', $op->id)
-                ->whereMonth('date', $month)
-                ->whereYear('date', $year)
-                ->where('color', 'blue')
-                ->sum('hours');
+            // Amarillos Calculations using batched data
+            $allTimeYellow = (float)($allTimeYellowTotals[$op->id] ?? 0);
+            $allTimeBlue = (float)($allTimeBlueTotals[$op->id] ?? 0);
+            $monthYellow = (float)($monthYellowTotals[$op->id] ?? 0);
+            $monthBlue = (float)($monthBlueTotals[$op->id] ?? 0);
 
             $totals[$op->id] = [
                 'horas_lv' => $hLunesViernes,

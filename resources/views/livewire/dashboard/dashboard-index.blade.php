@@ -13,6 +13,14 @@ new #[Layout('layouts.app')] class extends Component
     public $newHolidayDate;
     public $newHolidayName;
 
+    // User management state
+    public $showUserModal = false;
+    public $isEditing = false;
+    public $targetUserId;
+    public $userName = '';
+    public $userUsername = '';
+    public $userPassword = '';
+
     public function mount()
     {
         $this->extraRateWeekday = Setting::getRate('extra_rate_weekday', 0);
@@ -20,6 +28,78 @@ new #[Layout('layouts.app')] class extends Component
         $this->extraRateSunday = Setting::getRate('extra_rate_sunday', 0);
     }
 
+    /* User Management Methods */
+    public function openUserModal($id = null)
+    {
+        $this->resetValidation();
+        $this->reset(['userName', 'userUsername', 'userPassword', 'targetUserId', 'isEditing']);
+        
+        if ($id) {
+            $user = \App\Models\User::findOrFail($id);
+            $this->targetUserId = $id;
+            $this->userName = $user->name;
+            $this->userUsername = $user->username;
+            $this->isEditing = true;
+        }
+
+        $this->showUserModal = true;
+    }
+
+    public function closeUserModal()
+    {
+        $this->showUserModal = false;
+    }
+
+    public function saveUser()
+    {
+        $rules = [
+            'userName' => 'required|string|max:255',
+            'userUsername' => 'required|string|max:255|unique:users,username,' . ($this->targetUserId ?? 'NULL'),
+            'userPassword' => $this->isEditing ? 'nullable|string|min:4' : 'required|string|min:4',
+        ];
+
+        $this->validate($rules);
+
+        if ($this->isEditing) {
+            $user = \App\Models\User::findOrFail($this->targetUserId);
+            $updateData = [
+                'name' => $this->userName,
+                'username' => $this->userUsername,
+            ];
+            if ($this->userPassword) {
+                $updateData['password'] = bcrypt($this->userPassword);
+            }
+            $user->update($updateData);
+            session()->flash('status_user', 'Usuario actualizado correctamente.');
+        } else {
+            \App\Models\User::create([
+                'name' => $this->userName,
+                'username' => $this->userUsername,
+                'password' => bcrypt($this->userPassword),
+            ]);
+            session()->flash('status_user', 'Usuario creado correctamente.');
+        }
+
+        $this->closeUserModal();
+    }
+
+    public function deleteUser($id)
+    {
+        if (auth()->id() == $id) {
+            session()->flash('status_user_error', 'No puedes eliminarte a ti mismo.');
+            return;
+        }
+
+        \App\Models\User::findOrFail($id)->delete();
+        session()->flash('status_user', 'Usuario eliminado correctamente.');
+    }
+
+    public function getUsersProperty()
+    {
+        return \App\Models\User::orderBy('name')->get();
+    }
+
+    /* Holiday Methods */
     public function saveHoliday()
     {
         $this->validate([
@@ -74,6 +154,75 @@ new #[Layout('layouts.app')] class extends Component
     <!-- Main Content Area -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
+        <!-- User Management Card -->
+        <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-8 flex flex-col h-full lg:col-span-2">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600 mr-4">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900 font-outfit">Gestión de Usuarios</h3>
+                        <p class="text-sm text-slate-500">Administra quién tiene acceso al sistema.</p>
+                    </div>
+                </div>
+                <button wire:click="openUserModal()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors shadow-sm text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    Añadir Usuario
+                </button>
+            </div>
+
+            @if (session('status_user'))
+                <div class="mb-6 bg-emerald-50 text-emerald-700 p-4 rounded-xl text-sm font-medium border border-emerald-100 flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    {{ session('status_user') }}
+                </div>
+            @endif
+
+            @if (session('status_user_error'))
+                <div class="mb-6 bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100 flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    {{ session('status_user_error') }}
+                </div>
+            @endif
+
+            <div class="overflow-x-auto rounded-2xl border border-slate-100">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Nombre Completo</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Nombre de Usuario</th>
+                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-50">
+                        @foreach($this->users as $user)
+                            <tr wire:key="user-{{ $user->id }}" class="hover:bg-slate-50/50 transition-colors group">
+                                <td class="px-6 py-4 font-bold text-slate-700">{{ $user->name }}</td>
+                                <td class="px-6 py-4">
+                                    <span class="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-medium border border-slate-200 uppercase tracking-wider">
+                                        {{ $user->username }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button wire:click="openUserModal({{ $user->id }})" class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                        </button>
+                                        @if(auth()->id() != $user->id)
+                                            <button wire:click="deleteUser({{ $user->id }})" wire:confirm="¿Estás seguro de eliminar este usuario?" class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Holidays Management Card -->
         <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-8 flex flex-col h-full">
             <div class="flex items-center justify-between mb-8">
@@ -120,7 +269,7 @@ new #[Layout('layouts.app')] class extends Component
                 @else
                     <div class="space-y-2">
                         @foreach($this->holidays as $holiday)
-                            <div class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all group">
+                            <div wire:key="holiday-{{ $holiday->id }}" class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all group">
                                 <div class="flex items-center gap-4">
                                     <div class="bg-white p-2.5 rounded-xl shadow-sm text-center min-w-[50px]">
                                         <span class="block text-[10px] font-bold text-indigo-600 uppercase">{{ $holiday->date->translatedFormat('M') }}</span>
@@ -193,4 +342,46 @@ new #[Layout('layouts.app')] class extends Component
             </form>
         </div>
     </div>
+
+    <!-- User Modal -->
+    @if($showUserModal)
+        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                    <h3 class="text-lg font-bold text-slate-900">{{ $isEditing ? 'Editar Usuario' : 'Crear Nuevo Usuario' }}</h3>
+                    <button wire:click="closeUserModal" class="text-slate-400 hover:text-slate-600 focus:outline-none">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                
+                <form wire:submit="saveUser" class="p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label>
+                        <input type="text" wire:model="userName" class="w-full rounded-xl border-slate-200 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm" required autofocus>
+                        @error('userName') <span class="text-rose-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Nombre de Usuario</label>
+                        <input type="text" wire:model="userUsername" class="w-full rounded-xl border-slate-200 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm uppercase text-xs font-bold tracking-widest" required>
+                        @error('userUsername') <span class="text-rose-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Contraseña {{ $isEditing ? '(Dejar en blanco para no cambiar)' : '' }}</label>
+                        <input type="password" wire:model="userPassword" class="w-full rounded-xl border-slate-200 focus:ring-emerald-500 focus:border-emerald-500 shadow-sm" {{ $isEditing ? '' : 'required' }}>
+                        @error('userPassword') <span class="text-rose-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+                    
+                    <div class="pt-4 flex justify-end gap-3 mt-2">
+                        <button type="button" wire:click="closeUserModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>
+                        <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">
+                            {{ $isEditing ? 'Actualizar' : 'Crear' }} Usuario
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+</div>
 </div>
