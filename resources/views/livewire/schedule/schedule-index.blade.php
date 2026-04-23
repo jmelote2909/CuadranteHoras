@@ -116,7 +116,7 @@ new #[Layout('layouts.app')] class extends Component
             ->when($this->search, function($q) {
                 return $q->where('name', 'like', '%' . $this->search . '%');
             })
-            ->orderByRaw('name COLLATE NOCASE')
+            ->orderByRaw('LOWER(name) ASC')
             ->get();
         foreach($operators as $operator) {
             $date = Carbon::createFromDate($this->year, $this->month, 1);
@@ -236,7 +236,7 @@ new #[Layout('layouts.app')] class extends Component
             ->when($this->search, function($q) {
                 return $q->where('name', 'like', '%' . $this->search . '%');
             })
-            ->orderByRaw('name COLLATE NOCASE')
+            ->orderByRaw('LOWER(name) ASC')
             ->get();
         $days = $this->getDaysInMonth($this->month, $this->year);
         $totals = $this->calculateTotals($operators, $this->month, $this->year, $this->isAmarillosMode);
