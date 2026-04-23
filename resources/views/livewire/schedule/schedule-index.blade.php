@@ -24,18 +24,23 @@ new #[Layout('layouts.app')] class extends Component
     public $externalOperations = [];
 
     public $showAddModal = false;
+    public $showEditModal = false;
     public $newOperatorName = '';
+    public $editingOperatorId = null;
+    public $editingOperatorName = '';
+    public $search = '';
 
     public function rules()
     {
         return [
             'newOperatorName' => 'required|string|max:255',
+            'editingOperatorName' => 'nullable|string|max:255',
         ];
     }
 
     public function saveOperator()
     {
-        $this->validate();
+        $this->validate(['newOperatorName' => 'required|string|max:255']);
 
         Operator::create([
             'name' => $this->newOperatorName,
@@ -46,6 +51,29 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $this->reset(['newOperatorName', 'showAddModal']);
+        $this->loadShifts();
+    }
+
+    public function editOperator($id)
+    {
+        $operator = Operator::find($id);
+        if ($operator) {
+            $this->editingOperatorId = $id;
+            $this->editingOperatorName = $operator->name;
+            $this->showEditModal = true;
+        }
+    }
+
+    public function updateOperator()
+    {
+        $this->validate(['editingOperatorName' => 'required|string|max:255']);
+
+        $operator = Operator::find($this->editingOperatorId);
+        if ($operator) {
+            $operator->update(['name' => $this->editingOperatorName]);
+        }
+
+        $this->reset(['editingOperatorName', 'editingOperatorId', 'showEditModal']);
         $this->loadShifts();
     }
 
@@ -84,7 +112,12 @@ new #[Layout('layouts.app')] class extends Component
         $this->shifts = [];
         $this->shiftColors = [];
         
-        $operators = Operator::where('company', $this->company)->get();
+        $operators = Operator::where('company', $this->company)
+            ->when($this->search, function($q) {
+                return $q->where('name', 'like', '%' . $this->search . '%');
+            })
+            ->orderByRaw('name COLLATE NOCASE')
+            ->get();
         foreach($operators as $operator) {
             $date = Carbon::createFromDate($this->year, $this->month, 1);
             for ($i = 0; $i < $date->daysInMonth; $i++) {
@@ -166,6 +199,9 @@ new #[Layout('layouts.app')] class extends Component
                 ->where('operator_id', (int)$operatorId)
                 ->delete();
         } else {
+            // Support both comma and dot as decimal separator
+            $value = str_replace(',', '.', $value);
+            
             ExternalOperation::updateOrCreate(
                 ['month' => $this->month, 'year' => $this->year, 'operator_id' => (int)$operatorId],
                 ['amount' => (float)$value]
@@ -196,7 +232,12 @@ new #[Layout('layouts.app')] class extends Component
 
     public function with()
     {
-        $operators = Operator::where('company', $this->company)->get();
+        $operators = Operator::where('company', $this->company)
+            ->when($this->search, function($q) {
+                return $q->where('name', 'like', '%' . $this->search . '%');
+            })
+            ->orderByRaw('name COLLATE NOCASE')
+            ->get();
         $days = $this->getDaysInMonth($this->month, $this->year);
         $totals = $this->calculateTotals($operators, $this->month, $this->year, $this->isAmarillosMode);
 
@@ -243,16 +284,26 @@ new #[Layout('layouts.app')] class extends Component
             </button>
 
             <div class="flex items-center space-x-4 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                <button wire:click="prevMonth" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
-                    <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
-                </button>
-                <div class="px-4 text-center min-w-[140px]">
-                    <span class="block text-xs font-bold text-slate-400 uppercase leading-none">{{ $year }}</span>
-                    <span class="text-sm font-bold text-slate-900 capitalize">{{ $this->monthName() }}</span>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <input type="text" wire:model.live.debounce.300ms="search" placeholder="Buscar empleado..." 
+                        class="pl-10 pr-4 py-2 border-slate-200 rounded-xl text-sm focus:ring-indigo-500 focus:border-indigo-500 w-[200px]">
                 </div>
-                <button wire:click="nextMonth" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
-                    <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                </button>
+
+                <div class="flex items-center space-x-2">
+                    <button wire:click="prevMonth" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
+                        <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <div class="px-2 text-center min-w-[100px]">
+                        <span class="block text-xs font-bold text-slate-400 uppercase leading-none">{{ $year }}</span>
+                        <span class="text-xs font-bold text-slate-900 capitalize">{{ $this->monthName() }}</span>
+                    </div>
+                    <button wire:click="nextMonth" class="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all">
+                        <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -266,8 +317,13 @@ new #[Layout('layouts.app')] class extends Component
     @else
         <!-- The Grid Container -->
         <div class="bg-white rounded-2xl border border-slate-100 shadow-xl overflow-hidden pb-[1px]">
-            <div class="overflow-x-auto overflow-y-hidden">
-                <table class="w-full border-collapse text-[11px] font-medium tracking-tighter" style="min-width: 1400px;">
+            <!-- Mirror Scrollbar at the top -->
+            <div id="top-scrollbar-container" class="overflow-x-auto overflow-y-hidden border-b border-slate-100" style="height: 12px;">
+                <div id="top-scrollbar-filler" style="height: 12px; min-width: 1400px;"></div>
+            </div>
+
+            <div id="table-container" class="overflow-x-auto overflow-y-hidden">
+                <table id="main-table" class="w-full border-collapse text-[11px] font-medium tracking-tighter" style="min-width: 1400px;">
                     <thead>
                         <tr class="bg-slate-50 border-b border-slate-100">
                             <!-- Sticky First Column -->
@@ -319,14 +375,23 @@ new #[Layout('layouts.app')] class extends Component
                                 <td class="sticky left-0 z-10 bg-white group-hover:bg-indigo-50 p-3 border-r border-slate-200 font-bold text-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                     <div class="flex items-center justify-between gap-2">
                                         <span class="truncate">{{ $op->name }}</span>
-                                        <button 
-                                            wire:click="deleteOperator({{ $op->id }})"
-                                            wire:confirm="¿Estás seguro de que deseas eliminar a este empleado y todos sus registros?"
-                                            class="text-slate-300 hover:text-red-500 transition-colors p-1"
-                                            title="Eliminar Empleado"
-                                        >
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
+                                        <div class="flex items-center gap-1">
+                                            <button 
+                                                wire:click="editOperator({{ $op->id }})"
+                                                class="text-slate-300 hover:text-indigo-600 transition-colors p-1"
+                                                title="Editar Empleado"
+                                            >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                            </button>
+                                            <button 
+                                                wire:click="deleteOperator({{ $op->id }})"
+                                                wire:confirm="¿Estás seguro de que deseas eliminar a este empleado y todos sus registros?"
+                                                class="text-slate-300 hover:text-red-500 transition-colors p-1"
+                                                title="Eliminar Empleado"
+                                            >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </td>
 
@@ -377,7 +442,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <!-- Summary Data: Hours -->
                                     <td class="p-2 border-r border-slate-200 text-center bg-indigo-50/30 text-indigo-700 p-0">
                                         <input type="number" step="0.01" 
-                                            wire:model.live.debounce.1000ms="externalOperations.{{ $op->id }}"
+                                            wire:model.live.debounce.250ms="externalOperations.{{ $op->id }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0"
                                             placeholder="0,00 €">
                                     </td>
@@ -438,4 +503,62 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     </div>
     @endif
+    <!-- Edit Operator Modal -->
+    @if($showEditModal)
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 class="text-lg font-bold text-slate-900">Editar Empleado</h3>
+                <button wire:click="$set('showEditModal', false)" class="text-slate-400 hover:text-slate-600 focus:outline-none">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <form wire:submit="updateOperator" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nombre Completo</label>
+                    <input type="text" wire:model="editingOperatorName" class="w-full rounded-xl border-slate-200 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm" required autofocus>
+                    @error('editingOperatorName') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                </div>
+                
+                <div class="pt-4 flex justify-end gap-3 mt-2">
+                    <button type="button" wire:click="$set('showEditModal', false)" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-colors shadow-sm">Actualizar Empleado</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+
+    <script>
+        document.addEventListener('livewire:initialized', () => {
+            const topScrollbar = document.getElementById('top-scrollbar-container');
+            const tableContainer = document.getElementById('table-container');
+            const filler = document.getElementById('top-scrollbar-filler');
+            const table = document.getElementById('main-table');
+
+            // Sync widths initial
+            const syncWidths = () => {
+                filler.style.width = table.offsetWidth + 'px';
+            };
+
+            // Sync scroll
+            topScrollbar.onscroll = () => {
+                tableContainer.scrollLeft = topScrollbar.scrollLeft;
+            };
+            tableContainer.onscroll = () => {
+                topScrollbar.scrollLeft = tableContainer.scrollLeft;
+            };
+
+            // Re-sync on transitions or re-renders
+            Livewire.on('operators-updated', () => setTimeout(syncWidths, 100));
+            window.addEventListener('resize', syncWidths);
+            
+            // Mutation observer to handle content changes
+            const observer = new MutationObserver(syncWidths);
+            observer.observe(table, { childList: true, subtree: true });
+
+            syncWidths();
+        });
+    </script>
 </div>
