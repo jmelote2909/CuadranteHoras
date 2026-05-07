@@ -101,12 +101,6 @@ new #[Layout('layouts.app')] class extends Component
         $endDate = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('Y-m-d');
 
         $allShifts = Shift::whereBetween('date', [$startDate, $endDate])
-            ->when($this->isAmarillosMode, function($q) {
-                return $q->whereIn('color', ['yellow', 'blue']);
-            })
-            ->when(!$this->isAmarillosMode, function($q) {
-                return $q->whereNull('color');
-            })
             ->get();
             
         $this->shifts = [];
@@ -122,8 +116,8 @@ new #[Layout('layouts.app')] class extends Component
             $date = Carbon::createFromDate($this->year, $this->month, 1);
             for ($i = 0; $i < $date->daysInMonth; $i++) {
                 $current = $date->copy()->addDays($i)->format('Y-m-d');
-                $this->shifts[$operator->id][$current] = null;
-                $this->shiftColors[$operator->id][$current] = null;
+                $this->shifts[(int)$operator->id][$current] = null;
+                $this->shiftColors[(int)$operator->id][$current] = null;
             }
         }
 
@@ -137,8 +131,18 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         foreach($allShifts as $shift) {
-            $this->shifts[$shift->operator_id][$shift->date->format('Y-m-d')] = $shift->hours;
-            $this->shiftColors[$shift->operator_id][$shift->date->format('Y-m-d')] = $shift->color;
+            $color = $shift->color;
+            $hours = $shift->hours;
+            
+            // Skip hours that don't belong to the current mode (same logic as calculateTotals)
+            if ($this->isAmarillosMode && !in_array($color, ['yellow', 'blue'])) {
+                continue;
+            } elseif (!$this->isAmarillosMode && $color !== null) {
+                continue;
+            }
+
+            $this->shifts[(int)$shift->operator_id][$shift->date->format('Y-m-d')] = $hours;
+            $this->shiftColors[(int)$shift->operator_id][$shift->date->format('Y-m-d')] = $color;
         }
     }
 
@@ -167,6 +171,9 @@ new #[Layout('layouts.app')] class extends Component
         if ($value === '' || $value === null) {
             Shift::where('operator_id', (int)$operatorId)->whereDate('date', $date)->delete();
         } else {
+            // Support both comma and dot as decimal separator
+            $value = str_replace(',', '.', $value);
+            
             $shift = Shift::where('operator_id', (int)$operatorId)->whereDate('date', $date)->first();
             
             if ($shift) {
@@ -419,7 +426,7 @@ new #[Layout('layouts.app')] class extends Component
                                             $cellBg = 'bg-orange-50/20';
                                         }
                                     @endphp
-                                    <td class="border-r border-slate-100 text-center p-0 align-middle {{ $cellBg }}">
+                                    <td wire:key="cell-{{ $op->id }}-{{ $day['date'] }}" class="border-r border-slate-100 text-center p-0 align-middle {{ $cellBg }}">
                                         <input type="number" step="0.5" min="0" max="24"
                                             wire:model.live.debounce.1000ms="shifts.{{ $op->id }}.{{ $day['date'] }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0 {{ $textColor }}"
