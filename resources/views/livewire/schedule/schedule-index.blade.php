@@ -106,7 +106,7 @@ new #[Layout('layouts.app')] class extends Component
                 ->when($this->search, function($q) {
                     return $q->where('name', 'like', '%' . $this->search . '%');
                 })
-                ->orderByRaw('LOWER(name) ASC')
+                ->orderByRaw('CAST(name AS INTEGER) ASC')
                 ->get();
         }
 
@@ -251,7 +251,7 @@ new #[Layout('layouts.app')] class extends Component
             ->when($this->search, function($q) {
                 return $q->where('name', 'like', '%' . $this->search . '%');
             })
-            ->orderByRaw('LOWER(name) ASC')
+            ->orderByRaw('CAST(name AS INTEGER) ASC')
             ->get();
 
         // Sync the reactive shifts array with what is in DB (pass operators to avoid re-querying)

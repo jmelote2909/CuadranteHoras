@@ -25,7 +25,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function loadZones()
     {
-        $operators = Operator::where('company', $this->company)->get();
+        $operators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
         foreach ($operators as $op) {
             $this->zones[$op->id] = $op->zone;
         }
@@ -80,7 +80,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function with()
     {
-        $operators = Operator::where('company', $this->company)->get();
+        $operators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
         $totals = $this->calculateTotals($operators, $this->month, $this->year, false);
 
         // Filter operators to only show those with cost > 0

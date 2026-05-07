@@ -32,7 +32,7 @@ class AdministrationExport implements FromView, WithStyles, WithColumnWidths, Wi
 
     public function view(): View
     {
-        $allOperators = Operator::where('company', $this->company)->get();
+        $allOperators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
         $totals = $this->calculateTotals($allOperators, $this->month, $this->year, false);
         
         // Filter operators to only show those with cost > 0
