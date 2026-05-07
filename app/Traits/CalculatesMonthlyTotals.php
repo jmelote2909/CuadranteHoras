@@ -10,13 +10,20 @@ use Carbon\Carbon;
 
 trait CalculatesMonthlyTotals
 {
-    public function calculateTotals($operators, $month, $year, $isAmarillosMode = false)
+    public function calculateTotals($operators, $month, $year, $isAmarillosMode = false, $days = null)
     {
-        $days = $this->getDaysInMonth($month, $year);
-        
-        $globalRateWeekday = Setting::getRate('extra_rate_weekday', 0);
-        $globalRateSaturday = Setting::getRate('extra_rate_saturday', 0);
-        $globalRateSunday = Setting::getRate('extra_rate_sunday', 0);
+        if ($days === null) {
+            $days = $this->getDaysInMonth($month, $year);
+        }
+
+        // Cache global rates for the duration of the request (they rarely change)
+        [$globalRateWeekday, $globalRateSaturday, $globalRateSunday] = once(function() {
+            return [
+                Setting::getRate('extra_rate_weekday', 0),
+                Setting::getRate('extra_rate_saturday', 0),
+                Setting::getRate('extra_rate_sunday', 0),
+            ];
+        });
         
         $operatorIds = $operators->pluck('id')->toArray();
         
@@ -132,11 +139,14 @@ trait CalculatesMonthlyTotals
         $date = Carbon::createFromDate($year, $month, 1);
         $days = [];
         
-        $holidays = Holiday::whereMonth('date', $month)
-            ->whereYear('date', $year)
-            ->pluck('date')
-            ->map(fn($d) => $d->format('Y-m-d'))
-            ->toArray();
+        // Cache holidays per month/year to avoid repeated DB queries
+        $holidayDates = once(function() use ($month, $year) {
+            return Holiday::whereMonth('date', $month)
+                ->whereYear('date', $year)
+                ->pluck('date')
+                ->map(fn($d) => $d->format('Y-m-d'))
+                ->toArray();
+        });
 
         for ($i = 0; $i < $date->daysInMonth; $i++) {
             $current = $date->copy()->addDays($i);
@@ -147,7 +157,7 @@ trait CalculatesMonthlyTotals
                 'is_weekend' => $current->isWeekend(),
                 'is_saturday' => $current->dayOfWeek === Carbon::SATURDAY,
                 'is_sunday' => $current->dayOfWeek === Carbon::SUNDAY,
-                'is_holiday' => in_array($current->format('Y-m-d'), $holidays),
+                'is_holiday' => in_array($current->format('Y-m-d'), $holidayDates),
             ];
         }
         

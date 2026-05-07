@@ -95,27 +95,34 @@ new #[Layout('layouts.app')] class extends Component
         $this->loadShifts();
     }
 
-    public function loadShifts()
+    public function loadShifts($operators = null)
     {
         $startDate = Carbon::createFromDate($this->year, $this->month, 1)->format('Y-m-d');
         $endDate = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('Y-m-d');
 
+        // Reuse operators if already loaded (avoids duplicate DB query)
+        if ($operators === null) {
+            $operators = Operator::where('company', $this->company)
+                ->when($this->search, function($q) {
+                    return $q->where('name', 'like', '%' . $this->search . '%');
+                })
+                ->orderByRaw('LOWER(name) ASC')
+                ->get();
+        }
+
         $allShifts = Shift::whereBetween('date', [$startDate, $endDate])
+            ->whereIn('operator_id', $operators->pluck('id'))
             ->get();
             
         $this->shifts = [];
         $this->shiftColors = [];
         
-        $operators = Operator::where('company', $this->company)
-            ->when($this->search, function($q) {
-                return $q->where('name', 'like', '%' . $this->search . '%');
-            })
-            ->orderByRaw('LOWER(name) ASC')
-            ->get();
+        $daysInMonth = Carbon::createFromDate($this->year, $this->month, 1)->daysInMonth;
+        $baseDate = Carbon::createFromDate($this->year, $this->month, 1);
+        
         foreach($operators as $operator) {
-            $date = Carbon::createFromDate($this->year, $this->month, 1);
-            for ($i = 0; $i < $date->daysInMonth; $i++) {
-                $current = $date->copy()->addDays($i)->format('Y-m-d');
+            for ($i = 0; $i < $daysInMonth; $i++) {
+                $current = $baseDate->copy()->addDays($i)->format('Y-m-d');
                 $this->shifts[(int)$operator->id][$current] = null;
                 $this->shiftColors[(int)$operator->id][$current] = null;
             }
@@ -134,7 +141,6 @@ new #[Layout('layouts.app')] class extends Component
             $color = $shift->color;
             $hours = $shift->hours;
             
-            // Skip hours that don't belong to the current mode (same logic as calculateTotals)
             if ($this->isAmarillosMode && !in_array($color, ['yellow', 'blue'])) {
                 continue;
             } elseif (!$this->isAmarillosMode && $color !== null) {
@@ -164,6 +170,7 @@ new #[Layout('layouts.app')] class extends Component
             $operatorId = str_replace('externalOperations.', '', $name);
             $this->saveExternalOperation($operatorId, $value);
         }
+        // Livewire will automatically re-render with() on any property change
     }
 
     protected function saveShift($operatorId, $date, $value)
@@ -239,12 +246,17 @@ new #[Layout('layouts.app')] class extends Component
 
     public function with()
     {
+        // Single query for operators — reused by loadShifts to avoid duplicate
         $operators = Operator::where('company', $this->company)
             ->when($this->search, function($q) {
                 return $q->where('name', 'like', '%' . $this->search . '%');
             })
             ->orderByRaw('LOWER(name) ASC')
             ->get();
+
+        // Sync the reactive shifts array with what is in DB (pass operators to avoid re-querying)
+        // Only reload on explicit triggers (mount, prevMonth, nextMonth, saveOperator, etc.)
+        // On simple field updates (wire:model.blur) the shifts array is already up to date.
         $days = $this->getDaysInMonth($this->month, $this->year);
         $totals = $this->calculateTotals($operators, $this->month, $this->year, $this->isAmarillosMode);
 
@@ -428,7 +440,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @endphp
                                     <td wire:key="cell-{{ $op->id }}-{{ $day['date'] }}" class="border-r border-slate-100 text-center p-0 align-middle {{ $cellBg }}">
                                         <input type="number" step="0.5" min="0" max="24"
-                                            wire:model.live.debounce.1000ms="shifts.{{ $op->id }}.{{ $day['date'] }}"
+                                            wire:model.blur="shifts.{{ $op->id }}.{{ $day['date'] }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0 {{ $textColor }}"
                                             placeholder="-">
                                     </td>
@@ -449,7 +461,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <!-- Summary Data: Hours -->
                                     <td class="p-2 border-r border-slate-200 text-center bg-indigo-50/30 text-indigo-700 p-0">
                                         <input type="number" step="0.01" 
-                                            wire:model.live.debounce.250ms="externalOperations.{{ $op->id }}"
+                                            wire:model.blur="externalOperations.{{ $op->id }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0"
                                             placeholder="0,00 €">
                                     </td>
@@ -474,7 +486,7 @@ new #[Layout('layouts.app')] class extends Component
         </div>
 
         <!-- Legend / Hints -->
-        <div class="flex items-center space-x-6 text-xs text-slate-400 px-2 mt-4">
+        <div wire:ignore class="flex items-center space-x-6 text-xs text-slate-400 px-2 mt-4">
             <div class="flex items-center"><span class="w-3 h-3 bg-purple-600 rounded-sm mr-2"></span> Festivos</div>
             <div class="flex items-center"><span class="w-3 h-3 bg-rose-200 rounded-sm mr-2"></span> Domingos</div>
             <div class="flex items-center"><span class="w-3 h-3 bg-orange-100 rounded-sm mr-2"></span> Sábados</div>
@@ -537,7 +549,7 @@ new #[Layout('layouts.app')] class extends Component
     </div>
     @endif
 
-    <script>
+    <script wire:ignore>
         document.addEventListener('livewire:initialized', () => {
             const topScrollbar = document.getElementById('top-scrollbar-container');
             const tableContainer = document.getElementById('table-container');
@@ -546,6 +558,7 @@ new #[Layout('layouts.app')] class extends Component
 
             // Sync widths initial
             const syncWidths = () => {
+                if (!table || !filler) return;
                 filler.style.width = table.offsetWidth + 'px';
             };
 
