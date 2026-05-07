@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\ExternalOperation;
 use App\Models\Holiday;
 use App\Traits\CalculatesMonthlyTotals;
+use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.app')] class extends Component
 {
@@ -100,13 +101,17 @@ new #[Layout('layouts.app')] class extends Component
         $startDate = Carbon::createFromDate($this->year, $this->month, 1)->format('Y-m-d');
         $endDate   = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('Y-m-d') . ' 23:59:59';
 
+        $sortRaw = DB::getDriverName() === 'pgsql' 
+            ? "CAST(NULLIF(substring(name from '^[0-9]+'), '') AS INTEGER) ASC"
+            : "CAST(name AS INTEGER) ASC";
+
         // Reuse operators if already loaded (avoids duplicate DB query)
         if ($operators === null) {
             $operators = Operator::where('company', $this->company)
                 ->when($this->search, function($q) {
                     return $q->where('name', 'like', '%' . $this->search . '%');
                 })
-                ->orderByRaw('CAST(name AS INTEGER) ASC')
+                ->orderByRaw($sortRaw)
                 ->get();
         }
 
@@ -252,12 +257,16 @@ new #[Layout('layouts.app')] class extends Component
 
     public function with()
     {
+        $sortRaw = DB::getDriverName() === 'pgsql' 
+            ? "CAST(NULLIF(substring(name from '^[0-9]+'), '') AS INTEGER) ASC"
+            : "CAST(name AS INTEGER) ASC";
+
         // Single query for operators — reused by loadShifts to avoid duplicate
         $operators = Operator::where('company', $this->company)
             ->when($this->search, function($q) {
                 return $q->where('name', 'like', '%' . $this->search . '%');
             })
-            ->orderByRaw('CAST(name AS INTEGER) ASC')
+            ->orderByRaw($sortRaw)
             ->get();
 
         // Sync the reactive shifts array with what is in DB (pass operators to avoid re-querying)

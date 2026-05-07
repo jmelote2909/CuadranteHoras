@@ -5,6 +5,7 @@ namespace App\Exports;
 use App\Models\Operator;
 use App\Traits\CalculatesMonthlyTotals;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
 use Maatwebsite\Excel\Concerns\WithStyles;
@@ -32,7 +33,11 @@ class AdministrationExport implements FromView, WithStyles, WithColumnWidths, Wi
 
     public function view(): View
     {
-        $allOperators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
+        $sortRaw = DB::getDriverName() === 'pgsql' 
+            ? "CAST(NULLIF(substring(name from '^[0-9]+'), '') AS INTEGER) ASC"
+            : "CAST(name AS INTEGER) ASC";
+
+        $allOperators = Operator::where('company', $this->company)->orderByRaw($sortRaw)->get();
         $totals = $this->calculateTotals($allOperators, $this->month, $this->year, false);
         
         // Filter operators to only show those with cost > 0

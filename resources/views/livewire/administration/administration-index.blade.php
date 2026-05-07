@@ -5,6 +5,7 @@ use Livewire\Attributes\Layout;
 use Carbon\Carbon;
 use App\Models\Operator;
 use App\Traits\CalculatesMonthlyTotals;
+use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.app')] class extends Component
 {
@@ -25,7 +26,11 @@ new #[Layout('layouts.app')] class extends Component
 
     public function loadZones()
     {
-        $operators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
+        $sortRaw = DB::getDriverName() === 'pgsql' 
+            ? "CAST(NULLIF(substring(name from '^[0-9]+'), '') AS INTEGER) ASC"
+            : "CAST(name AS INTEGER) ASC";
+            
+        $operators = Operator::where('company', $this->company)->orderByRaw($sortRaw)->get();
         foreach ($operators as $op) {
             $this->zones[$op->id] = $op->zone;
         }
@@ -80,7 +85,11 @@ new #[Layout('layouts.app')] class extends Component
 
     public function with()
     {
-        $operators = Operator::where('company', $this->company)->orderByRaw('CAST(name AS INTEGER) ASC')->get();
+        $sortRaw = DB::getDriverName() === 'pgsql' 
+            ? "CAST(NULLIF(substring(name from '^[0-9]+'), '') AS INTEGER) ASC"
+            : "CAST(name AS INTEGER) ASC";
+
+        $operators = Operator::where('company', $this->company)->orderByRaw($sortRaw)->get();
         $totals = $this->calculateTotals($operators, $this->month, $this->year, false);
 
         // Filter operators to only show those with cost > 0
