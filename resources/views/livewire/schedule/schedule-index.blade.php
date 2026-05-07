@@ -98,7 +98,7 @@ new #[Layout('layouts.app')] class extends Component
     public function loadShifts($operators = null)
     {
         $startDate = Carbon::createFromDate($this->year, $this->month, 1)->format('Y-m-d');
-        $endDate = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('Y-m-d');
+        $endDate   = Carbon::createFromDate($this->year, $this->month, 1)->endOfMonth()->format('Y-m-d') . ' 23:59:59';
 
         // Reuse operators if already loaded (avoids duplicate DB query)
         if ($operators === null) {
@@ -188,6 +188,9 @@ new #[Layout('layouts.app')] class extends Component
                 if ($this->isAmarillosMode) {
                     $updateData['color'] = $this->activeColor;
                     $this->shiftColors[$operatorId][$date] = $this->activeColor;
+                } else {
+                    $updateData['color'] = null; // Clear color in normal mode
+                    $this->shiftColors[$operatorId][$date] = null;
                 }
                 $shift->update($updateData);
             } else {
@@ -199,6 +202,9 @@ new #[Layout('layouts.app')] class extends Component
                 if ($this->isAmarillosMode) {
                     $createData['color'] = $this->activeColor;
                     $this->shiftColors[$operatorId][$date] = $this->activeColor;
+                } else {
+                    $createData['color'] = null;
+                    $this->shiftColors[$operatorId][$date] = null;
                 }
                 Shift::create($createData);
             }
@@ -440,7 +446,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @endphp
                                     <td wire:key="cell-{{ $op->id }}-{{ $day['date'] }}" class="border-r border-slate-100 text-center p-0 align-middle {{ $cellBg }}">
                                         <input type="number" step="0.5" min="0" max="24"
-                                            wire:model.blur="shifts.{{ $op->id }}.{{ $day['date'] }}"
+                                            wire:model.live.debounce.1500ms="shifts.{{ $op->id }}.{{ $day['date'] }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0 {{ $textColor }}"
                                             placeholder="-">
                                     </td>
@@ -461,7 +467,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <!-- Summary Data: Hours -->
                                     <td class="p-2 border-r border-slate-200 text-center bg-indigo-50/30 text-indigo-700 p-0">
                                         <input type="number" step="0.01" 
-                                            wire:model.blur="externalOperations.{{ $op->id }}"
+                                            wire:model.live.debounce.1500ms="externalOperations.{{ $op->id }}"
                                             class="w-full h-full min-h-[46px] text-center bg-transparent border-none focus:ring-0 text-sm font-bold p-0 m-0"
                                             placeholder="0,00 €">
                                     </td>
@@ -579,6 +585,16 @@ new #[Layout('layouts.app')] class extends Component
             observer.observe(table, { childList: true, subtree: true });
 
             syncWidths();
+
+            // ─── Fix: Enter key on grid inputs triggers blur so wire:model.blur fires ───
+            // Without this, pressing Enter after typing a value does NOT save it,
+            // and the totals column stays at 0.
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                    e.preventDefault();
+                    e.target.blur();
+                }
+            });
         });
     </script>
 </div>
